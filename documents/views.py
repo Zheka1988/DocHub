@@ -6,6 +6,7 @@ from django.http import Http404, FileResponse
 from django.shortcuts import get_object_or_404, redirect
 import zipfile
 import tempfile
+import re
 
 from .models import Document
 from .minio_client import get_minio_client
@@ -56,9 +57,17 @@ def document_open(request, pk: int):
                 
             tmp.seek(0)
             
-            filename = doc.original_filename or "archive"
-            if not filename.endswith('.zip'):
-                filename += '.zip'
+            tmp.seek(0)
+            
+            # New filename logic: <number>-<YYYY.MM.DD>.zip
+            date_str = doc.date.strftime("%Y.%m.%d")
+            number_str = str(doc.number)
+            
+            # Simple sanitization (replace invalid with -)
+            # Reusing the pattern from admin.py for consistency
+            safe_number = re.sub(r'[\\/*?:"<>|]', '-', number_str)
+            
+            filename = f"{safe_number}-{date_str}.zip"
                 
             return FileResponse(tmp, as_attachment=True, filename=filename)
             

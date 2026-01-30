@@ -1,4 +1,5 @@
 import uuid
+import re
 import json
 from pathlib import Path
 from django.contrib import admin
@@ -45,7 +46,7 @@ class SubTaskAdmin(admin.ModelAdmin):
 @admin.register(DocumentTask)
 class DocumentTaskAdmin(admin.ModelAdmin):
     """Задачи (документы)"""
-    list_display = ("document", "task", "closes_task_fully")
+    list_display = ("task", "document")  # "closes_task_fully"
     list_filter = ("closes_task_fully", "task")
     search_fields = ("document__number", "document__title", "task__title")
     autocomplete_fields = ("document", "task")
@@ -65,8 +66,9 @@ class DocumentTaskAdmin(admin.ModelAdmin):
 @admin.register(DocumentSubTask)
 class DocumentSubTaskAdmin(admin.ModelAdmin):
     """Подзадачи (документы)"""
-    list_display = ("document_task", "subtask",)
-    list_filter = ("document_task__task",)
+    list_display = ("subtask", "get_task", "get_document")
+
+    list_filter = ("document_task__task", "document_task__document")
     search_fields = (
         "document_task__document__number",
         "document_task__document__title",
@@ -74,6 +76,16 @@ class DocumentSubTaskAdmin(admin.ModelAdmin):
         "subtask__title",
     )
     autocomplete_fields = ("document_task", "subtask")
+
+    @admin.display(description="Задача", ordering="document_task__task__title")
+    def get_task(self, obj):
+        return obj.document_task.task
+
+    @admin.display(description="Документ", ordering="document_task__document__number")
+    def get_document(self, obj):
+        d = obj.document_task.document
+        # чтобы было понятнее, можно вернуть "№ - заголовок"
+        return f"№{d.number} — {d.date}" if getattr(d, "title", None) else f"№{d.number}"
 
 
 @admin.register(Document)
@@ -87,7 +99,7 @@ class DocumentAdmin(nested_admin.NestedModelAdmin):
                     "realization", "grade", "executor",
                     "source", "direction", "open_file",]  # "task", "subtask",
 
-    list_filter = [("date", DateRangeFilter), "grade", "executor", "source", "direction","realization", "department"]  # "task", "subtask"
+    list_filter = [("date", DateRangeFilter), "grade", "executor", "source", "direction","realization", "department", "document_tasks__task"]  # "task", "subtask"
     inlines = (DocumentTaskInline,)
 
     def open_file(self, obj):
@@ -110,18 +122,33 @@ class DocumentAdmin(nested_admin.NestedModelAdmin):
             if not client.bucket_exists(settings.MINIO_BUCKET):
                 client.make_bucket(settings.MINIO_BUCKET)
 
-            now = timezone.now()
-            department = (
-                obj.executor.department
-                if obj.executor and obj.executor.department
-                else None
-            )
-            dept_title = department.title if department else "no_department"
-            # Sanitize replacement to avoid path issues
-            dept_title = dept_title.replace("/", "_") 
+            # New MinIO path logic
+            # Structure: <year>/<dept>/<month>/<source>/<doc_folder>/
+            # doc_folder: <number>-<date>
+            
+            # 1. Extract params
+            year_str = obj.date.strftime("%Y")
+            month_str = obj.date.strftime("%m")
+            date_str = obj.date.strftime("%Y.%m.%d")
+            
+            dept_title = obj.department.title
+            source_title = obj.source.title
+            number_str = str(obj.number)
+            
+            # 2. Sanitize params (replace invalid chars with _ or -)
+            def sanitize(s, replace_with='_'):
+                return re.sub(r'[\\/*?:"<>|]', replace_with, str(s))
 
-            uuid_hex = uuid.uuid4().hex
-            prefix = f"{dept_title}/{now:%Y/%m}/{uuid_hex}/"
+            safe_dept = sanitize(dept_title)
+            safe_source = sanitize(source_title)
+            # Use - for number as requested
+            safe_number = sanitize(number_str, '-') 
+            
+            # 3. Construct doc_folder
+            doc_folder = f"{safe_number}-{date_str}"
+            
+            # 4. Construct prefix
+            prefix = f"{year_str}/{safe_dept}/{month_str}/{safe_source}/{doc_folder}/"
             
             path_data = []
             if file_paths_json:
@@ -181,15 +208,42 @@ class DocumentAdmin(nested_admin.NestedModelAdmin):
                 parts = first_path.split('/')
                 obj.original_filename = parts[0] if len(parts) > 1 else "folder"
             else:
-                # Single file uploaded as file (or single file in folder)
-                # Note: if it was single file in folder, webkitRelativePath still has path
-                # But if just file selection, no path.
-                if path_data and '/' in path_data[0].get('path', ''):
-                     obj.content_type = "folder"
-                     obj.original_filename = path_data[0].get('path').split('/')[0]
-                else:
-                     obj.content_type = getattr(files[0], "content_type", "application/octet-stream")
-                     obj.original_filename = files[0].name
+                 # Single file upload
+                 # Even for single file, we store it inside the doc_folder structure.
+                 
+                 # If we want to treat even single files as "folder" content type because of structure:
+                 # obj.content_type = "folder"
+                 # obj.original_filename = files[0].name 
+                 
+                 # But standard logic for single file usually keeps original content type.
+                 # Let's keep existing logic but ensure storage_key logic is consistent.
+                 
+                 if path_data and '/' in path_data[0].get('path', ''):
+                      obj.content_type = "folder"
+                      obj.original_filename = path_data[0].get('path').split('/')[0]
+                 else:
+                      obj.content_type = getattr(files[0], "content_type", "application/octet-stream")
+                      obj.original_filename = files[0].name
+                      
+                 # IMPORTANT: For single files, we must set storage_key to the full object key,
+                 # NOT just the prefix, otherwise document_open (presigned url) fails.
+                 if obj.content_type != "folder":
+                      # Re-construct key for the single file (loop ran once)
+                      # Relies on 'key' variable from loop being available?
+                      # Yes, python loop variables leak scope. But robust way matches loop logic.
+                      
+                      # Simplest way: use the last 'key' calculated 
+                      # (since len(files)==1 for this branch effectively)
+                      # Or re-calculate:
+                      rel_path = files[0].name
+                      if path_data: # Should check use_index logic but here implies single
+                           # Fallback simple logic
+                           rel_path = path_data[0].get('path', rel_path)
+                      
+                      rel_path = rel_path.lstrip('/')
+                      obj.storage_key = prefix + rel_path
+            
+            obj.size_bytes = total_size
             
             obj.size_bytes = total_size
 
