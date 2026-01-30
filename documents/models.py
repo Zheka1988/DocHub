@@ -1,7 +1,9 @@
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
+from users.models import Department
 from smart_selects.db_fields import ChainedForeignKey
+
 
 from DocHub import settings
 
@@ -135,8 +137,13 @@ class Document(models.Model):
         verbose_name="Исполнитель",
         on_delete=models.PROTECT,
         related_name="executed_documents",
-        null=True,
-        blank=True,
+    )
+    department = models.ForeignKey(
+        "users.Department",
+        verbose_name="Управление",
+        on_delete=models.PROTECT,
+        related_name="documents",
+        help_text="Управление, добывшее (предоставившее) документ"
     )
     source = models.ForeignKey(
         Source,
@@ -204,11 +211,11 @@ class DocumentTask(models.Model):
         if self.closes_task_fully:
             Task.objects.filter(pk=self.task_id, is_closed=False).update(is_closed=True)
             SubTask.objects.filter(task_id=self.task_id, is_closed=False).update(is_closed=True)
-        DocumentSubTask.objects.filter(document_task=self).delete()
-        DocumentSubTask.objects.bulk_create(
-            [DocumentSubTask(document_task=self, subtask=st) for st in self.task.subtasks.all()],
-            ignore_conflicts=True,
-        )
+            DocumentSubTask.objects.filter(document_task=self).delete()
+            DocumentSubTask.objects.bulk_create(
+                [DocumentSubTask(document_task=self, subtask=st) for st in self.task.subtasks.all()],
+                ignore_conflicts=True,
+            )
 
     class Meta:
         verbose_name = "Задача (документы)"
@@ -235,11 +242,14 @@ class DocumentSubTask(models.Model):
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        return super().save(*args, **kwargs)
+        instance = super().save(*args, **kwargs)
+        
         SubTask.objects.filter(pk=self.subtask_id, is_closed=False).update(is_closed=True)
         task_id = self.subtask.task_id
         if not SubTask.objects.filter(task_id=task_id, is_closed=False).exists():
             Task.objects.filter(pk=task_id, is_closed=False).update(is_closed=True)
+
+        return instance
 
     def clean(self):
         if self.document_task_id and self.subtask_id:
