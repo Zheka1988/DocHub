@@ -1,12 +1,13 @@
 from django.contrib import admin
 from .models import DocumentTask, DocumentSubTask, SubTask
+from .forms import DocumentSubTaskForm
 import nested_admin
 
 
 class DocumentSubTaskInline(nested_admin.NestedTabularInline):
     model = DocumentSubTask
+    form = DocumentSubTaskForm
     extra = 1
-    autocomplete_fields = ("subtask",)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         """

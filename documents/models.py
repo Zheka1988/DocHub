@@ -2,7 +2,6 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from users.models import Department
-from smart_selects.db_fields import ChainedForeignKey
 
 
 from DocHub import settings
@@ -84,9 +83,9 @@ class SubTask(models.Model):
         related_name="subtasks",
         verbose_name="Задача",
     )
-    title = models.CharField(
+    title = models.TextField(
         verbose_name="Подзадача",
-        max_length=256
+        max_length=512
     )
     is_closed = models.BooleanField(
         verbose_name="Подзадача закрыта",
@@ -180,7 +179,8 @@ class Document(models.Model):
     )
 
     def __str__(self):
-        return f"{self.number}: {self.date}"
+        d = self.date.strftime("%d.%m.%Y") if self.date else "—"
+        return f"{self.number}: {d}"
 
     class Meta:
         verbose_name = "Документ"
@@ -262,19 +262,33 @@ class DocumentSubTask(models.Model):
         unique_together = ("document_task", "subtask")
 
 
-    # task = models.ForeignKey(
-    #     Task,
-    #     verbose_name="Задача",
-    #     on_delete=models.PROTECT,
-    #     related_name="documents",
-    # )
-    # subtask = ChainedForeignKey(
-    #     SubTask,
-    #     chained_field="task",
-    #     chained_model_field="task",
-    #     show_all=False,
-    #     auto_choose=True,
-    #     sort=True,
-    #     verbose_name="Подзадача",
-    #     on_delete=models.PROTECT,
-    # )
+class DirectionRef(Direction):
+    class Meta:
+        proxy = True
+        app_label = "references"
+        verbose_name = "Направление"
+        verbose_name_plural = "Направления"
+
+
+class TaskRef(Task):
+    class Meta:
+        proxy = True
+        app_label = "references"
+        verbose_name = "Задача"
+        verbose_name_plural = "Задачи"
+
+
+class SubtaskRef(SubTask):
+    class Meta:
+        proxy = True
+        app_label = "references"
+        verbose_name = "Подзадача"
+        verbose_name_plural = "Подзадачи"
+
+
+class SourceRef(Source):
+    class Meta:
+        proxy = True
+        app_label = "references"
+        verbose_name = "Источник"
+        verbose_name_plural = "Источники"

@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     # "unfold",
     "rangefilter",
     # "jazzmin",
+    "references.apps.ReferencesConfig",
     "nested_admin",
     'django.contrib.admin',
     'django.contrib.auth',

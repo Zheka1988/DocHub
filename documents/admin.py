@@ -1,13 +1,11 @@
-import uuid
 import re
 import json
-from pathlib import Path
 from django.contrib import admin
-from django.utils import timezone
-from django.urls import reverse
+from django.http import JsonResponse
+from django.urls import reverse, path
 from django.utils.html import format_html
 from django.conf import settings
-from .models import Document, Task, SubTask, Source, Direction, DocumentTask,DocumentSubTask
+from .models import Document, Task, SubTask, Source, Direction, DocumentTask,DocumentSubTask, DirectionRef, TaskRef, SubtaskRef, SourceRef
 from .forms import DocumentAdminForm
 from rangefilter.filters import DateRangeFilter
 from .minio_client import get_minio_client
@@ -20,12 +18,16 @@ class DirectionAdmin(admin.ModelAdmin):
     """Направление"""
     search_fields = ("title",)
 
+    def get_model_perms(self, request):
+        return {}
 
 @admin.register(Source)
 class SourceAdmin(admin.ModelAdmin):
     """Источник"""
     search_fields = ("title",)
 
+    def get_model_perms(self, request):
+        return {}
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
@@ -34,6 +36,8 @@ class TaskAdmin(admin.ModelAdmin):
     list_display = ("title", "description", "is_closed", "created_at")
     list_filter = ("is_closed",)
 
+    def get_model_perms(self, request):
+        return {}
 
 @admin.register(SubTask)
 class SubTaskAdmin(admin.ModelAdmin):
@@ -41,6 +45,9 @@ class SubTaskAdmin(admin.ModelAdmin):
     list_display = ("title", "task", "is_closed", "created_at")
     list_filter = ("task", "is_closed")
     search_fields = ("title", "task__title")
+
+    def get_model_perms(self, request):
+        return {}
 
 
 @admin.register(DocumentTask)
@@ -84,8 +91,11 @@ class DocumentSubTaskAdmin(admin.ModelAdmin):
     @admin.display(description="Документ", ordering="document_task__document__number")
     def get_document(self, obj):
         d = obj.document_task.document
-        # чтобы было понятнее, можно вернуть "№ - заголовок"
-        return f"№{d.number} — {d.date}" if getattr(d, "title", None) else f"№{d.number}"
+        if not d:
+            return "—"
+
+        date_str = d.date.strftime("%d.%m.%Y") if d.date else "—"
+        return f"{d.number}: {date_str}"
 
 
 @admin.register(Document)
@@ -110,6 +120,9 @@ class DocumentAdmin(nested_admin.NestedModelAdmin):
         return format_html('<a href="{}" target="_blank">{}</a>', url, label)
 
     open_file.short_description = "Файл"
+
+    class Media:
+        js = ("documents/js/admin_dynamic_filter.js",)
 
     def save_model(self, request, obj, form, change):
         files = request.FILES.getlist('file')
@@ -249,3 +262,25 @@ class DocumentAdmin(nested_admin.NestedModelAdmin):
 
         super().save_model(request, obj, form, change)
 
+
+@admin.register(DirectionRef)
+class DirectionRefAdmin(admin.ModelAdmin):
+    search_fields = ("title",)
+
+
+@admin.register(TaskRef)
+class TaskRefAdmin(admin.ModelAdmin):
+    search_fields = ("title",)
+    list_display = ("title", "description", "is_closed", "created_at")
+    list_filter = ("is_closed",)
+
+@admin.register(SubtaskRef)
+class SubtaskRefAdmin(admin.ModelAdmin):
+    list_display = ("title", "task", "is_closed", "created_at")
+    list_filter = ("task", "is_closed")
+    search_fields = ("title", "task__title")
+
+
+@admin.register(SourceRef)
+class SourceRefAdmin(admin.ModelAdmin):
+    search_fields = ("title",)
