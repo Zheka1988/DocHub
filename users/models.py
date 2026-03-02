@@ -48,7 +48,7 @@ class User(AbstractUser):
     )
     department = models.ForeignKey(
         Department,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         verbose_name="Управление",
         related_name="users",
         null=True,

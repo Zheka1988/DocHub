@@ -1,8 +1,6 @@
-
-import json
-from django import forms
 from django.contrib.admin.widgets import AdminFileWidget
 from django.utils.safestring import mark_safe
+
 
 class FolderUploadWidget(AdminFileWidget):
     allow_multiple_selected = True

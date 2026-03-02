@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from users.models import User, Department, Role
-from .models import Document, Source, Direction
+from .models import Document, Source, ExternalDepartment
 from .admin import DocumentAdmin
 from .forms import DocumentAdminForm
 
@@ -30,7 +30,7 @@ class DocumentFolderUploadTest(TestCase):
         self.user.save()
         
         self.source = Source.objects.create(title="Test Source")
-        self.direction = Direction.objects.create(title="Test Direction")
+        self.direction = ExternalDepartment.objects.create(title="Test Direction")
 
     @patch("documents.admin.get_minio_client")
     def test_save_model_folder_upload(self, mock_get_client):

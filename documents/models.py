@@ -1,7 +1,11 @@
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+
 from users.models import Department
+from django_countries.fields import CountryField
 
 
 from DocHub import settings
@@ -13,6 +17,23 @@ class Source(models.Model):
         verbose_name="Название источника",
         max_length=256
     )
+    description = models.TextField(
+        verbose_name="Описание источника",
+        null=True,
+        blank=True
+    )
+    created_at = models.DateField(
+        verbose_name="Дата фиксации источника",
+        auto_now_add=True,
+    )
+    updated_at = models.DateField(
+        verbose_name="Дата последнего изменения",
+        auto_now=True,
+    )
+    year = models.SmallIntegerField(
+        verbose_name="Год",
+        default=2026
+    )
 
     def __str__(self):
         return self.title
@@ -20,21 +41,40 @@ class Source(models.Model):
     class Meta:
         verbose_name = "Источник"
         verbose_name_plural = "Источники"
+        unique_together = (("title", "year"),)
 
 
-class Direction(models.Model):
-    """Направление"""
+class ExternalDepartment(models.Model):
+    """Ведомство"""
     title = models.CharField(
-        verbose_name="Направление",
+        verbose_name="Название",
         max_length=256
+    )
+    description = models.TextField(
+        verbose_name="Описание ведомства",
+        null=True,
+        blank=True
+    )
+    year = models.SmallIntegerField(
+        verbose_name="Год",
+        default=2026
+    )
+    created_at = models.DateField(
+        verbose_name="Дата внесения ведомства в базу",
+        auto_now_add=True,
+    )
+    updated_at = models.DateField(
+        verbose_name="Дата последнего изменения",
+        auto_now=True,
     )
 
     def __str__(self):
         return self.title
 
     class Meta:
-        verbose_name = "Направление"
-        verbose_name_plural = "Направления"
+        verbose_name = "Ведомство"
+        verbose_name_plural = "Ведомства"
+        unique_together = (("title", "year"),)
 
 
 class Task(models.Model):
@@ -46,7 +86,7 @@ class Task(models.Model):
     description = models.TextField(
         verbose_name="Описание",
         blank=True,
-        max_length=256
+        null=True
     )
     is_closed = models.BooleanField(
         verbose_name="Задача закрыта",
@@ -59,6 +99,10 @@ class Task(models.Model):
     updated_at = models.DateTimeField(
         verbose_name="Дата последнего изменения",
         auto_now=True,
+    )
+    year = models.SmallIntegerField(
+        verbose_name="Год",
+        default=2026
     )
 
     def __str__(self):
@@ -75,6 +119,43 @@ class Task(models.Model):
         ]
 
 
+class Country(models.Model):
+    """Страна"""
+    encoding = models.CharField(
+        verbose_name="Кодировка",
+        max_length=50,
+    )
+    title = CountryField(
+        verbose_name="Название страны",
+        max_length=2
+    )
+    created_at = models.DateField(
+        verbose_name="Дата создания страны",
+        auto_now_add=True,
+    )
+    updated_at = models.DateField(
+        verbose_name="Дата последнего изменения",
+        auto_now=True,
+    )
+    year = models.PositiveSmallIntegerField(
+        verbose_name="Год создания",
+        default=2026
+    )
+
+    def __str__(self):
+        return f"{self.title.code} - {self.encoding}"
+
+    class Meta:
+        verbose_name = "Страна"
+        verbose_name_plural = "Страны"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['title', 'encoding', 'year'],
+                name='unique_country_encoding_year'
+            )
+        ]
+
+
 class SubTask(models.Model):
     """Подзадача"""
     task = models.ForeignKey(
@@ -85,14 +166,13 @@ class SubTask(models.Model):
     )
     title = models.TextField(
         verbose_name="Подзадача",
-        max_length=512
     )
     is_closed = models.BooleanField(
         verbose_name="Подзадача закрыта",
         default=False,
     )
     created_at = models.DateTimeField(
-        verbose_name="Дата создания задачи",
+        verbose_name="Дата создания подзадачи",
         auto_now_add=True,
     )
     updated_at = models.DateTimeField(
@@ -109,6 +189,38 @@ class SubTask(models.Model):
         unique_together = ("task", "title")
 
 
+class Direction(models.Model):
+    """Направление С-Ю-З-В"""
+    title = models.CharField(
+        verbose_name="Название"
+    )
+    year = models.SmallIntegerField(
+        verbose_name="Год",
+        default=2026
+    )
+    description = models.TextField(
+        verbose_name="Описание направления",
+        blank=True,
+        null=True
+    )
+    created_at = models.DateTimeField(
+        verbose_name="Дата создания направления",
+        auto_now_add=True,
+    )
+    updated_at = models.DateTimeField(
+        verbose_name="Дата последнего изменения",
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return self.title
+
+    class Meta:
+        verbose_name = "Направление"
+        verbose_name_plural = "Направления"
+        unique_together = (("title", "year"),)
+
+
 class Document(models.Model):
     """Документ"""
     title = models.CharField(
@@ -123,9 +235,17 @@ class Document(models.Model):
     date = models.DateField(
         verbose_name="Дата",
     )
-    realization = models.CharField(
+    realization = models.ForeignKey(
+        ExternalDepartment,
+        on_delete=models.PROTECT,
+        related_name='documents',
         verbose_name="Реализация",
         max_length=256
+    )
+    countries = models.ManyToManyField(
+        Country,
+        related_name='documents',
+        verbose_name="Страны"
     )
     grade = models.IntegerField(
         verbose_name="Оценка",
@@ -135,7 +255,7 @@ class Document(models.Model):
         settings.AUTH_USER_MODEL,
         verbose_name="Исполнитель",
         on_delete=models.PROTECT,
-        related_name="executed_documents",
+        related_name="documents",
     )
     department = models.ForeignKey(
         "users.Department",
@@ -207,15 +327,35 @@ class DocumentTask(models.Model):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
+        self._update_closure_status()
+
+    def _update_closure_status(self):
+        all_count = self.task.subtasks.count()
+        covered_count = self.covered_subtasks.count()
+
+        should_be_fully = (covered_count == all_count and all_count > 0)
+
+        # Обновляем closes_task_fully без рекурсии
+        if self.closes_task_fully != should_be_fully:
+            DocumentTask.objects.filter(pk=self.pk).update(closes_task_fully=should_be_fully)
+            self.closes_task_fully = should_be_fully  # синхронизируем объект в памяти
 
         if self.closes_task_fully:
-            Task.objects.filter(pk=self.task_id, is_closed=False).update(is_closed=True)
-            SubTask.objects.filter(task_id=self.task_id, is_closed=False).update(is_closed=True)
-            DocumentSubTask.objects.filter(document_task=self).delete()
-            DocumentSubTask.objects.bulk_create(
-                [DocumentSubTask(document_task=self, subtask=st) for st in self.task.subtasks.all()],
-                ignore_conflicts=True,
-            )
+            # Закрываем задачу и подзадачи
+            self.task.is_closed = True
+            self.task.save(update_fields=['is_closed'])  # ← здесь save на другой модели — ок
+
+            SubTask.objects.filter(task=self.task, is_closed=False).update(is_closed=True)
+
+            # Создаём недостающие связи (без рекурсии)
+            existing_ids = set(self.covered_subtasks.values_list('subtask_id', flat=True))
+            missing = self.task.subtasks.exclude(id__in=existing_ids)
+            if missing.exists():
+                with transaction.atomic():
+                    DocumentSubTask.objects.bulk_create(
+                        [DocumentSubTask(document_task=self, subtask=st) for st in missing],
+                        ignore_conflicts=True
+                    )
 
     class Meta:
         verbose_name = "Задача (документы)"
@@ -262,12 +402,20 @@ class DocumentSubTask(models.Model):
         unique_together = ("document_task", "subtask")
 
 
-class DirectionRef(Direction):
+@receiver(post_save, sender=DocumentSubTask)
+@receiver(post_delete, sender=DocumentSubTask)
+def sync_document_task(sender, instance, **kwargs):
+    if instance.document_task_id:
+        dt = instance.document_task
+        dt._update_closure_status()
+
+
+class ExternalDepartmentRef(ExternalDepartment):
     class Meta:
         proxy = True
         app_label = "references"
-        verbose_name = "Направление"
-        verbose_name_plural = "Направления"
+        verbose_name = "Ведомство"
+        verbose_name_plural = "Ведомства"
 
 
 class TaskRef(Task):
@@ -292,3 +440,19 @@ class SourceRef(Source):
         app_label = "references"
         verbose_name = "Источник"
         verbose_name_plural = "Источники"
+
+
+class CountryRef(Country):
+    class Meta:
+        proxy = True
+        app_label = "references"
+        verbose_name = "Страна"
+        verbose_name_plural = "Страны"
+
+
+class DirectionRef(Direction):
+    class Meta:
+        proxy = True
+        app_label = "references"
+        verbose_name = "Направление"
+        verbose_name_plural = "Направления"

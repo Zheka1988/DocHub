@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 from .models import User, Department
 from django.utils.translation import gettext_lazy as _
 
-admin.site.site_header = 'Администрирование DocHub'
+admin.site.site_header = 'QHub'
 EMPTY_VALUE_DISPLAY = '<пусто>'
 
 
@@ -52,3 +52,4 @@ class UserAdmin(UserAdmin):
 @admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
     """Панель настройки департаментов/центров"""
+    search_fields = ["title"]

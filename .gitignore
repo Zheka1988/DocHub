@@ -25,3 +25,4 @@ media
 
 # Static
 staticfiles/
+offline_packages

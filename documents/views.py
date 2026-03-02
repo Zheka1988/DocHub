@@ -21,6 +21,7 @@ from smart_selects.utils import (
     get_limit_choices_to,
 )
 
+
 def do_filter(qs, keywords, exclude=False):
     """
     Filter queryset based on keywords.
@@ -43,6 +44,7 @@ def do_filter(qs, keywords, exclude=False):
     else:
         qs = qs.filter(and_q)
     return qs
+
 
 def chained_filter(request, app, model, field, foreign_key_app_name, foreign_key_model_name, foreign_key_field_name, value, manager=None):
     """

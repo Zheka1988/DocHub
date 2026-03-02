@@ -5,7 +5,6 @@ from smart_selects.form_fields import ChainedModelChoiceField
 from .models import Document, DocumentSubTask, SubTask, Task
 
 
-
 class MultipleFileField(forms.FileField):
     def to_python(self, data):
         if not data:
@@ -54,31 +53,3 @@ class DocumentAdminForm(forms.ModelForm):
         model = Document
         fields = "__all__"
 
-class DocumentSubTaskForm(forms.ModelForm):
-    # Hidden field to store the task ID from the parent inline
-    task_filter = forms.ModelChoiceField(
-        queryset=Task.objects.all(),
-        # Видимое поле с названием ФИЛЬТР, read-only
-        label="ФИЛЬТР",
-        widget=forms.TextInput(attrs={'readonly': 'readonly'}),
-        required=False
-    )
-    
-    subtask = ChainedModelChoiceField(
-        to_app_name='documents',
-        to_model_name='SubTask',
-        chained_field='task_filter',
-        chained_model_field='task',
-        foreign_key_app_name='documents',
-        foreign_key_model_name='Task',
-        foreign_key_field_name='id',
-        view_name='document_chained_filter',
-        show_all=False,
-        auto_choose=True,
-        required=True,
-        label="Подзадача"
-    )
-
-    class Meta:
-        model = DocumentSubTask
-        fields = "__all__"

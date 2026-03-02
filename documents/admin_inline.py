@@ -1,33 +1,38 @@
-from django.contrib import admin
-from .models import DocumentTask, DocumentSubTask, SubTask
-from .forms import DocumentSubTaskForm
+from .models import DocumentTask, DocumentSubTask
 import nested_admin
+from django.forms.models import BaseInlineFormSet
+
+
+class DocumentSubTaskInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+
+        for form in self.forms:
+            if not hasattr(form, "cleaned_data"):
+                continue
+            if form.cleaned_data.get("DELETE"):
+                continue
+
+            subtask = form.cleaned_data.get("subtask")
+            document_task = form.cleaned_data.get("document_task") or getattr(form.instance, "document_task", None)
+
+            # document_task может быть ещё не полностью “связан” — поэтому аккуратно
+            task = getattr(document_task, "task", None)
+
+            if subtask and task and subtask.task_id != task.id:
+                form.add_error("subtask", "Подзадача не относится к выбранной задаче.")
 
 
 class DocumentSubTaskInline(nested_admin.NestedTabularInline):
     model = DocumentSubTask
-    form = DocumentSubTaskForm
-    extra = 1
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        """
-        Ограничиваем выбор subtask только подзадачами нужной task.
-        DocumentTask редактируется как /admin/documents/documenttask/<id>/change/
-        """
-        if db_field.name == "subtask":
-            obj_id = request.resolver_match.kwargs.get("object_id")
-            if obj_id:
-                try:
-                    dt = DocumentTask.objects.get(pk=obj_id)
-                    kwargs["queryset"] = SubTask.objects.filter(task=dt.task).order_by("title")
-                except DocumentTask.DoesNotExist:
-                    pass
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    autocomplete_fields = ['subtask']
+    extra = 0
+    formset = DocumentSubTaskInlineFormSet
 
 
 class DocumentTaskInline(nested_admin.NestedTabularInline):
     model = DocumentTask
-    extra = 1
+    extra = 0
     autocomplete_fields = ("task",)
     fields = ("task", "closes_task_fully")
     show_change_link = True
